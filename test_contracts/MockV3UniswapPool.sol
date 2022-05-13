@@ -30,7 +30,6 @@ contract MockV3UniswapPool {
     constructor(
             uint160 sqrtPriceX96_,
             int24 tick_,
-            uint8 feeProtocol_,
             address token0_,
             address token1_,
             uint128 liquidity_,
@@ -47,7 +46,7 @@ contract MockV3UniswapPool {
                 observationIndex: 1,
                 observationCardinality: 1,
                 observationCardinalityNext: 1,
-                feeProtocol: feeProtocol_,
+                feeProtocol: 0,
                 unlocked: false
             });
         }

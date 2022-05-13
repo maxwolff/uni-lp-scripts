@@ -1,24 +1,19 @@
 {
-  "include": ["."],
   "compilerOptions": {
-    "target": "es2018",
-    "module": "commonjs",
-    "importHelpers": true,
-    "declaration": true,
+    "module": "CommonJS",
+    "esModuleInterop": true,
     "sourceMap": true,
-    "strict": false,
+    "strict": true,
     "noImplicitAny": true,
     "strictNullChecks": true,
     "strictFunctionTypes": true,
-    "strictPropertyInitialization": true,
     "noImplicitThis": true,
     "alwaysStrict": true,
     "noUnusedLocals": false,
-    "noUnusedParameters": true,
+    "noUnusedParameters": false,
     "noImplicitReturns": true,
     "noFallthroughCasesInSwitch": true,
     "moduleResolution": "node",
-    "esModuleInterop": true,
     "resolveJsonModule": true
   }
 }

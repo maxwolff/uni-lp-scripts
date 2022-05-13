@@ -1,13 +1,13 @@
-import BetterSQLite from 'better-sqlite3'
+import BetterSQLite from 'better-sqlite3';
 import {
-    insertPairRaw,
-    insertTokenRaw,
-    PairsRow,
-    TokensRow,
-} from './controller'
+  insertPairRaw,
+  insertTokenRaw,
+  PairsRow,
+  TokensRow,
+} from '../src/controller';
 
 export const migrate001 = (db: BetterSQLite.Database) => {
-    db.exec(`
+  db.exec(`
     CREATE TABLE pairs (
         CONSTRAINT id PRIMARY KEY(address, network)
         address TEXT,
@@ -15,9 +15,9 @@ export const migrate001 = (db: BetterSQLite.Database) => {
         token0address TEXT,
         token1address TEXT,
         feeTierBPS INT
-    )`)
+    )`);
 
-    db.exec(`
+  db.exec(`
     CREATE TABLE tokens (
         CONSTRAINT id PRIMARY KEY(address, network),
         address TEXT,
@@ -26,9 +26,9 @@ export const migrate001 = (db: BetterSQLite.Database) => {
         name TEXT,
         symbol TEXT
     )
-    `)
+    `);
 
-    db.exec(`
+  db.exec(`
     CREATE TABLE strategies (
         id INT PRIMARY KEY AUTOINCREMENT,
         network TEXT,
@@ -40,34 +40,34 @@ export const migrate001 = (db: BetterSQLite.Database) => {
         tickUpper NUMERIC,
         tickLower NUMERIC
     )
-    `)
-}
+    `);
+};
 
 const pairsTestData: PairsRow[] = [
-    {
-        address: '0x123',
-        network: 'kovan',
-        token0address: '0x123',
-        token1address: '0x123',
-        feeTierBPS: 500,
-    },
-]
+  {
+    address: '0x123',
+    network: 'kovan',
+    token0address: '0x123',
+    token1address: '0x123',
+    feeTierBPS: 500,
+  },
+];
 
 const testTokens: TokensRow[] = [
-    {
-        address: '0x123',
-        network: 'kovan',
-        symbol: 'abc',
-        name: 'abc',
-        decimals: 18,
-    },
-]
+  {
+    address: '0x123',
+    network: 'kovan',
+    symbol: 'abc',
+    name: 'abc',
+    decimals: 18,
+  },
+];
 
 export const testData = (db: BetterSQLite.Database) => {
-    for (let row of pairsTestData) {
-        insertPairRaw(row, db)
-    }
-    for (let row of testTokens) {
-        insertTokenRaw(row, db)
-    }
-}
+  for (let row of pairsTestData) {
+    insertPairRaw(row, db);
+  }
+  for (let row of testTokens) {
+    insertTokenRaw(row, db);
+  }
+};
