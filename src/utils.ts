@@ -1,11 +1,4 @@
-import Database from 'better-sqlite3';
-import BetterSqlite3 from 'better-sqlite3';
 import { providers } from 'ethers';
-
-export const getDB = (): BetterSqlite3.Database => {
-  const dbPath = process.env.NODE_ENV == 'test' ? ':memory:' : 'test.db';
-  return new Database(dbPath, { fileMustExist: true });
-};
 
 export const getProvider = (network: providers.Network) => {
   if (process.env.NODE_ENV == 'test') throw 'no provider in test';

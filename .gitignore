@@ -3,6 +3,7 @@ cache
 build
 keystore
 *.db
+dev.md
 
 # build output
 dist

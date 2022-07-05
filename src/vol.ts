@@ -12,7 +12,6 @@ interface PoolAnalysis {
   IV: number;
   RV: number;
   tickTVL: number;
-  naiveAPY: number;
   diff: number;
   dailyFees: string;
 }
@@ -244,7 +243,6 @@ export const analyze = (
   const feeTier = scaleFeeTier(+pool.feeTier);
   let tickTVLUSD = calcTickTVLusd(pool, networkName);
   const latestDayVolume = averageDayAggregate(pool.poolDayData, 2, 'volumeUSD');
-  const naiveAPY = (365 * latestDayVolume * feeTier) / tickTVLUSD;
 
   const histVol = calcHistoricalVolatility(pool.poolDayData);
   const implVol = calcImpliedVolatility(feeTier, latestDayVolume, tickTVLUSD);
@@ -255,7 +253,6 @@ export const analyze = (
     RV: histVol,
     diff: implVol - histVol,
     tickTVL: tickTVLUSD,
-    naiveAPY: naiveAPY,
     dailyFees: `${Math.floor(latestDayVolume * feeTier) / 1000}k`,
   };
 };

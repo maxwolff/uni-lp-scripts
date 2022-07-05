@@ -1,13 +1,14 @@
-- PASSWORD=abc FILEPATH=abc.json node key_gen.js
+# Uniswap LP Scripts
 
-node --inspect-brk node_modules/.bin/tsdx test --runInBand src/entities/position.test.ts
+Finds analyzes top Uniswap pools on every chain to pools with high volume but under-supplied ticks. Ranks pools using [Guillame Lambert's method](https://lambert-guillaume.medium.com/on-chain-volatility-and-uniswap-v3-d031b98143d1) of finding an LP share's implied volatility, compared to the realized daily volatility over the past week.
 
-address: 0x4F96Fe3b7A6Cf9725f59d353F723c1bDb64CA6Aa
+Ranks pools by the difference between IV and RV, and filters out small pools.
 
-`source .env`
+## To run
 
-DEBUG:
+- npm install
+- npx ts-node -T src/cli.ts analyze -n optimism
 
-NODE_OPTIONS='--inspect-brk'
+### Example output
 
-attach to process in vscode
+![example output](ex.png)
