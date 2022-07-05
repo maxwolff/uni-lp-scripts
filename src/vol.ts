@@ -5,187 +5,149 @@ import { Token } from '@uniswap/sdk-core';
 import { exists, feeToSpacing } from './utils';
 import { ethers } from 'ethers';
 import { graphEndpoints } from './utils';
-import fs from 'fs';
-import fetch from 'node-fetch';
+
+interface PoolAnalysis {
+  id: string;
+  meta: string;
+  IV: number;
+  RV: number;
+  tickTVL: number;
+  naiveAPY: number;
+  diff: number;
+  dailyFees: string;
+}
 
 interface PoolDayData {
   date: number;
   token0Price: string;
   volumeUSD: string;
+  feesUSD: string;
 }
 
 interface PoolInfoFields {
   id: string;
-  tick: string;
   feeTier: string;
   liquidity: string;
   sqrtPrice: string;
+  tick: string;
+  totalValueLockedUSD: string;
   token0Price: string;
   token1Price: string;
   token0: TokenInfo;
   token1: TokenInfo;
-  poolDayDatas: PoolDayData[];
-}
-
-const poolFieldsFragment = gql`
-  fragment poolFields on Pools {
-    id
-    tick
-    feeTier
-    liquidity
-    sqrtPrice
-    tick
-    token0Price
-    token1Price
-    token0 {
-      symbol
-      id
-      decimals
-    }
-    token1 {
-      symbol
-      id
-      decimals
-    }
-    poolDayDatas(orderBy: date, where: { date_gt: $date_gt }) {
-      date
-      token0Price
-      volumeUSD
-    }
-  }
-`;
-
-interface PoolInfoResponse {
-  pools: PoolInfoFields[];
+  poolDayData: PoolDayData[];
 }
 
 interface TokenInfo {
   symbol: string;
   id: string;
   decimals: string;
+  tokenDayData: [
+    {
+      priceUSD: string;
+      date: string;
+    }
+  ];
 }
 
-const filename = 'data.json';
+const poolFieldsFragment = gql`
+    id
+    tick
+    feeTier
+    liquidity
+    sqrtPrice
+    tick
+    totalValueLockedUSD
+    token0Price
+    token1Price
+    token0 {
+      symbol
+      id
+      decimals
+      tokenDayData(first:1, orderBy:date, orderDirection: desc){
+        priceUSD
+        date
+      }
+    }
+    token1 {
+      symbol
+      id
+      decimals
+      tokenDayData(first:1, orderBy:date, orderDirection: desc){
+        priceUSD
+        date
+      }
+    }
+    poolDayData(orderBy: date, where: { date_gt: $date_gt }) {
+      date
+      token0Price
+      volumeUSD
+      feesUSD
+    }
+`;
+
+const getDaysAgoTimestamp = (daysAgo: number): number =>
+  Math.round(new Date().getTime() / 1000 - 24 * 60 * 60 * daysAgo);
 
 // 100ths of bips
 const scaleFeeTier = (tier: number) => tier / 1000000;
 
-const getETHprice = async (): Promise<string> => {
-  const res = await fetch('https://prices.compound.finance');
-  const data: any = await res.json();
-  return data.coinbase.prices['ETH'];
-};
-
-export const analyzeTopPools = async (networkName: string) => {
-  const pools = await getPoolsAgg(networkName, 7);
-  let res = [];
-  const ethPrice = await getETHprice();
-  const results = pools.pools.map((pool: PoolInfoFields) =>
-    analyze(pool, networkName, +ethPrice)
-  );
-  console.log(results);
-
-  // fs.writeFile(filename, json, function (err: any) {
-  //   if (err) return console.log(err);
-  // console.log(`writing to file ${filename}`);
-};
-
-const getPoolsAgg = async (
-  networkName: string,
-  daysAgo: number
-): Promise<PoolInfoResponse> => {
-  const query: string = gql`
-  query getPoolAgg($date_gt: Int!) {
-      pools(
-        first: 10
-        orderBy: totalValueLockedUSD
-        orderDirection: desc
-        where: { txCount_gt: 20 }
-      ) {
-        ...poolFieldsFragment
-      }
-      ${poolFieldsFragment}
-  }
-  `;
-  const date_gt = getDaysAgoTimestamp(daysAgo);
-
-  const result = await graphRequest(query, { date_gt }, networkName);
-  return result;
-};
-
-const getPool = async (
-  poolAddress: string,
-  networkName: string,
-  daysAgo: number
-): Promise<PoolInfoFields> => {
-  const query: string = gql`
-    query getPool($poolAddress: String!, $date_gt: Int!) {
-      pool(id: $poolAddress) {
-        ...poolFieldsFragment
-      }
-    ${poolFieldsFragment}
-    }
-  `;
-  const date = getDaysAgoTimestamp(daysAgo);
-
-  const variables = { date_gt: date, poolAddress: poolAddress.toLowerCase() };
-  const data = await graphRequest(query, variables, networkName);
-  return data.pool;
-};
-
-export const analyzeSingle = async (
-  poolAddress: string,
+const graphRequest = async (
+  query: string,
+  variables: any,
   networkName: string
-) => {
-  const RVdays = 7;
-  const pool: PoolInfoFields = await getPool(poolAddress, networkName, RVdays);
-  const ethPrice = await getETHprice();
-  const results = analyze(pool, networkName, +ethPrice);
-  console.log(results);
-};
-
-export const analyze = (
-  pool: PoolInfoFields,
-  networkName: string,
-  ethPrice: number
-) => {
-  const feeTier = scaleFeeTier(+pool.feeTier);
-  let tickTVL;
+): Promise<any> => {
+  const endpoint = exists(graphEndpoints[networkName]);
   try {
-    tickTVL = calcTickTVLeth(
-      pool,
-      networkName,
-      pool.token0Price,
-      pool.token1Price
-    );
+    return request(endpoint, query, variables);
   } catch (e) {
-    console.log(e, pool.token0.symbol, pool.token1.symbol);
-    return {};
+    throw `graph request err:${e}`;
   }
-
-  const latestDayVolume = +pool.poolDayDatas.sort((a, b) => b.date - a.date)[0]
-    .volumeUSD;
-
-  const histVol = calcHistoricalVolatility(pool.poolDayDatas);
-  const implVol = calcImpliedVolatility(
-    feeTier,
-    latestDayVolume,
-    tickTVL * +ethPrice
-  );
-  return {
-    id: pool.id,
-    meta: `${pool.token0.symbol} / ${pool.token1.symbol}, ${feeTier}. ${networkName}`,
-    IV: implVol,
-    RV: histVol,
-  };
 };
 
-const calcTickTVLeth = (
-  pi: PoolInfoFields,
-  networkName: string,
-  token0Price: string,
-  token1Price: string
+// "day data" gets cut off between days, so we take the average of the last two days
+const averageDayAggregate = (
+  poolDayData: PoolDayData[],
+  daysAgo: number,
+  key: 'feesUSD' | 'volumeUSD'
 ): number => {
+  const ts = getDaysAgoTimestamp(daysAgo);
+  const lastNDays = poolDayData.filter((e) => e.date > ts);
+  const total = lastNDays.reduce(
+    (acc: number, val: PoolDayData) => acc + +val[key],
+    0
+  );
+  const lowestTimestamp = lastNDays.sort((a, b) => +a.date - +b.date)[0]?.date;
+  const days = (getDaysAgoTimestamp(0) - lowestTimestamp) / (24 * 60 * 60);
+  return total / days;
+};
+
+const calcHistoricalVolatility = (prices: PoolDayData[]) => {
+  const logReturns: number[] = [];
+  prices.forEach((val, idx, arr) => {
+    if (idx != 0) {
+      const periodReturn =
+        Number(val.token0Price) / Number(arr[idx - 1].token0Price);
+      const logReturn = Math.log(periodReturn);
+      logReturns.push(logReturn);
+    }
+  });
+  const vol = stats.standardDeviation(logReturns);
+  return vol * Math.sqrt(365);
+};
+
+//https://lambert-guillaume.medium.com/on-chain-volatility-and-uniswap-v3-d031b98143d1
+//
+const calcImpliedVolatility = (
+  scaledFee: number, //
+  dailyVolume: number,
+  tickTVL: number
+) => {
+  const daily = 2 * scaledFee * Math.sqrt(dailyVolume / tickTVL);
+  return daily * Math.sqrt(365); // scale to yaer
+};
+
+const calcTickTVLusd = (pi: PoolInfoFields, networkName: string): number => {
   const tokenA = new Token(
     ethers.providers.getNetwork(networkName).chainId,
     pi.token0.id,
@@ -221,54 +183,115 @@ const calcTickTVLeth = (
   const amt0 = +pos.amount0.toFixed();
   const amt1 = +pos.amount1.toFixed();
 
-  // token 0 == usdc
-  // toekn1 == WETH
-  if (pos.pool.token0.symbol == 'WETH') {
-    return amt0 * +amt1 * +token0Price;
-  } else if (pos.pool.token1.symbol == 'WETH') {
-    return amt0 * +token1Price + amt1;
-  } else {
-    throw 'neither is weth';
-  }
+  return (
+    amt0 * +pi.token0.tokenDayData[0].priceUSD +
+    amt1 * +pi.token1.tokenDayData[0].priceUSD
+  );
 };
 
-const calcHistoricalVolatility = (prices: PoolDayData[]) => {
-  const logReturns: number[] = [];
-  prices.forEach((val, idx, arr) => {
-    if (idx != 0) {
-      const periodReturn =
-        Number(val.token0Price) / Number(arr[idx - 1].token0Price);
-      const logReturn = Math.log(periodReturn);
-      logReturns.push(logReturn);
+const getPoolsAgg = async (
+  networkName: string,
+  daysAgo: number,
+  count: number
+): Promise<PoolInfoFields[]> => {
+  const query: string = gql`
+    query getPoolAgg($date_gt: Int!, $count: Int!) {
+        bundles {
+          ethPriceUSD
+        }
+        pools(
+          first: $count
+          orderBy: volumeUSD
+          orderDirection: desc
+          where: { txCount_gt: 20, feesUSD_gt: 10000, totalValueLockedUSD_gt: 20000 }
+        ) {
+          liquidityProviderCount
+          ${poolFieldsFragment}
+        }
     }
-  });
-  const vol = stats.standardDeviation(logReturns);
-  return vol * Math.sqrt(365);
+    `;
+  const date_gt = getDaysAgoTimestamp(daysAgo);
+  const result = await graphRequest(query, { date_gt, count }, networkName);
+  return exists(result.pools);
 };
 
-//https://lambert-guillaume.medium.com/on-chain-volatility-and-uniswap-v3-d031b98143d1
-//
-const calcImpliedVolatility = (
-  scaledFee: number, //
-  dailyVolume: number,
-  tickTVL: number
-) => {
-  const daily = 2 * scaledFee * Math.sqrt(dailyVolume / tickTVL);
-  return daily * Math.sqrt(365); // scale to yaer
+const getPool = async (
+  poolAddress: string,
+  networkName: string,
+  daysAgo: number
+): Promise<PoolInfoFields> => {
+  const query: string = gql`
+    query getPool($poolAddress: String!, $date_gt: Int!) {
+      bundles {
+          ethPriceUSD
+        }
+      pool(id: $poolAddress) {
+        ${poolFieldsFragment}
+      }
+    }
+    `;
+  const date = getDaysAgoTimestamp(daysAgo);
+  const variables = { date_gt: date, poolAddress: poolAddress.toLowerCase() };
+
+  const result = await graphRequest(query, variables, networkName);
+  return exists(result.pool);
 };
 
-const getDaysAgoTimestamp = (daysAgo: number): Number =>
-  Math.round(new Date().getTime() / 1000 - 24 * 60 * 60 * daysAgo);
-
-const graphRequest = async (
-  query: string,
-  variables: any,
+export const analyze = (
+  pool: PoolInfoFields,
   networkName: string
-): Promise<any> => {
-  const endpoint = exists(graphEndpoints[networkName]);
-  try {
-    return request(endpoint, query, variables);
-  } catch (e) {
-    throw `graph request err:${e}`;
+): PoolAnalysis => {
+  const feeTier = scaleFeeTier(+pool.feeTier);
+  let tickTVLUSD = calcTickTVLusd(pool, networkName);
+  const latestDayVolume = averageDayAggregate(pool.poolDayData, 2, 'volumeUSD');
+  const naiveAPY = (365 * latestDayVolume * feeTier) / tickTVLUSD;
+
+  const histVol = calcHistoricalVolatility(pool.poolDayData);
+  const implVol = calcImpliedVolatility(feeTier, latestDayVolume, tickTVLUSD);
+  return {
+    id: pool.id,
+    meta: `${pool.token0.symbol} / ${pool.token1.symbol}, ${feeTier} ${networkName}`,
+    IV: implVol,
+    RV: histVol,
+    diff: implVol - histVol,
+    tickTVL: tickTVLUSD,
+    naiveAPY: naiveAPY,
+    dailyFees: `${Math.floor(latestDayVolume * feeTier) / 1000}k`,
+  };
+};
+
+export const analyzeSingle = async (
+  poolAddress: string,
+  networkName: string
+): Promise<PoolAnalysis> => {
+  const RVdays = 7;
+  const pool = await getPool(poolAddress, networkName, RVdays);
+  return analyze(pool, networkName);
+};
+
+export const analyzeTopPools = async (
+  networkName: string,
+  count: number
+): Promise<PoolAnalysis[]> => {
+  const daysAgo = 7;
+  let pools = await getPoolsAgg(networkName, daysAgo, count);
+  let results = [];
+
+  for (let pool of pools) {
+    if (pool.poolDayData.length > 3) {
+      if (+averageDayAggregate(pool.poolDayData, 2, 'feesUSD') > 500) {
+        try {
+          results.push(analyze(pool, networkName));
+        } catch (e) {}
+      } else {
+        // console.log(
+        //   pool.id,
+        //   pool.poolDayData,
+        //   +averageDayAggregate(pool.poolDayData, 2, 'feesUSD')
+        // );
+      }
+    }
   }
+
+  return results.sort((a, b) => b.diff - a.diff);
 };
